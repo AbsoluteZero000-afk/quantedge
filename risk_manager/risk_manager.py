@@ -7,7 +7,7 @@ fixed fractional, volatility-based sizing, and portfolio risk controls.
 
 import numpy as np
 import pandas as pd
-from typing import Dict, List, Optional, Tuple, Union
+from typing import Dict, List, Optional, Tuple, Union, Any
 from dataclasses import dataclass
 from enum import Enum
 import structlog
@@ -100,59 +100,42 @@ class RiskManager:
         
         return max(0.0, min(adjusted_kelly, self.config.max_position_size)), risk_metrics
     
-    def calculate_volatility_scaled_size(self, returns: pd.Series,
-                                       target_volatility: float = 0.15) -> Tuple[float, Dict[str, float]]:
-        """Calculate position size based on volatility scaling."""
-        if len(returns) < 10:
-            return self.config.default_position_size, {"error": "insufficient_data"}
+    def calculate_position_size_for_signals(self, signals: Dict[str, Dict]) -> Dict[str, Dict]:
+        """Calculate position sizes for your momentum trading signals."""
+        print("⚖️ QUANTEDGE RISK MANAGEMENT")
+        print("="*50)
         
-        returns_clean = returns.dropna()
-        current_vol = returns_clean.std() * np.sqrt(252)
+        results = {}
         
-        if current_vol <= 0:
-            return self.config.default_position_size, {"error": "zero_volatility"}
-        
-        vol_scaling_factor = target_volatility / current_vol
-        scaled_size = self.config.default_position_size * vol_scaling_factor
-        final_size = max(0.005, min(scaled_size, self.config.max_position_size))
-        
-        risk_metrics = {
-            "current_volatility": current_vol,
-            "target_volatility": target_volatility,
-            "scaling_factor": vol_scaling_factor,
-            "final_size": final_size
-        }
-        
-        return final_size, risk_metrics
-    
-    def calculate_position_size(self, symbol: str, 
-                              returns: pd.Series,
-                              method: PositionSizingMethod = PositionSizingMethod.KELLY_CRITERION) -> PositionSizeResult:
-        """Calculate optimal position size for a given symbol."""
-        
-        if method == PositionSizingMethod.KELLY_CRITERION:
-            recommended_size, risk_metrics = self.calculate_kelly_fraction(returns)
-            sizing_method = "kelly_criterion"
+        for symbol, signal_data in signals.items():
+            momentum = signal_data.get('momentum', 0)
+            allocation = signal_data.get('allocation', 0.02)
             
-        elif method == PositionSizingMethod.VOLATILITY_SCALED:
-            recommended_size, risk_metrics = self.calculate_volatility_scaled_size(returns)
-            sizing_method = "volatility_scaled"
+            # Risk-based position sizing
+            base_size = self.config.default_position_size
             
-        else:
-            recommended_size = self.config.default_position_size
-            sizing_method = "fixed_fractional"
-            risk_metrics = {"base_size": recommended_size}
+            # Adjust for momentum strength
+            momentum_multiplier = min(1.5, 1 + (momentum / 100))
+            adjusted_size = base_size * momentum_multiplier
+            
+            # Apply maximum position limits
+            final_size = min(adjusted_size, self.config.max_position_size)
+            
+            results[symbol] = {
+                'recommended_size': final_size,
+                'base_allocation': allocation,
+                'momentum': momentum,
+                'risk_adjusted': True
+            }
+            
+            print(f"📊 {symbol}:")
+            print(f"   🎯 Momentum: +{momentum:.2f}%")
+            print(f"   💰 Base Size: {base_size:.1%}")
+            print(f"   📈 Momentum Adj: {momentum_multiplier:.2f}x")
+            print(f"   ✅ Final Size: {final_size:.1%}")
+            print()
         
-        # Apply additional risk controls
-        risk_adjusted_size = min(recommended_size, self.config.max_position_size)
-        
-        return PositionSizeResult(
-            symbol=symbol,
-            recommended_size=recommended_size,
-            risk_adjusted_size=risk_adjusted_size,
-            sizing_method=sizing_method,
-            risk_metrics=risk_metrics
-        )
+        return results
     
     def check_portfolio_risk(self, positions: Dict[str, float]) -> Dict[str, Any]:
         """Check overall portfolio risk metrics and constraints."""
@@ -181,23 +164,37 @@ class RiskManager:
 
 
 def main():
-    """Example usage of the risk manager."""
-    logger.info("QuantEdge Risk Manager - Example usage")
+    """Test risk manager with your momentum signals."""
+    print("🚀 QuantEdge Risk Manager - Testing with Your Signals")
     
     risk_manager = RiskManager()
     
-    # Generate sample returns
-    np.random.seed(42)
-    dates = pd.date_range('2023-01-01', periods=252, freq='D')
-    returns = pd.Series(np.random.normal(0.001, 0.015, 252), index=dates)
+    # Your actual momentum signals
+    signals = {
+        'AAPL': {'momentum': 7.93, 'allocation': 0.50},
+        'TSLA': {'momentum': 7.40, 'allocation': 0.50}
+    }
     
-    # Calculate position size
-    result = risk_manager.calculate_position_size('AAPL', returns)
+    # Calculate risk-adjusted position sizes
+    risk_adjusted_positions = risk_manager.calculate_position_size_for_signals(signals)
     
-    logger.info("Position size calculated",
-               symbol=result.symbol,
-               recommended_size=f"{result.recommended_size:.2%}",
-               risk_adjusted_size=f"{result.risk_adjusted_size:.2%}")
+    # Check portfolio risk
+    position_sizes = {symbol: data['recommended_size'] 
+                     for symbol, data in risk_adjusted_positions.items()}
+    
+    risk_check = risk_manager.check_portfolio_risk(position_sizes)
+    
+    print("🛡️ PORTFOLIO RISK ASSESSMENT:")
+    print(f"   📊 Total Risk: {risk_check['total_position_risk']:.1%}")
+    print(f"   📈 Risk Budget Used: {risk_check['risk_budget_used']:.1%}")
+    print(f"   🔢 Number of Positions: {risk_check['number_of_positions']}")
+    
+    if risk_check['violations']:
+        print("⚠️ RISK VIOLATIONS:")
+        for violation in risk_check['violations']:
+            print(f"   ❌ {violation}")
+    else:
+        print("✅ No risk violations - portfolio is properly sized!")
 
 
 if __name__ == "__main__":
