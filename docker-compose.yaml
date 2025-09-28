@@ -1,0 +1,28 @@
+version: '3.8'
+
+services:
+  postgres:
+    image: postgres:13
+    environment:
+      - POSTGRES_DB=quantedge
+      - POSTGRES_USER=quantedge_user
+      - POSTGRES_PASSWORD=quantedge_pass
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./database/schema.sql:/docker-entrypoint-initdb.d/schema.sql
+
+  quantedge:
+    build: .
+    depends_on:
+      - postgres
+    environment:
+      - DATABASE_URL=postgresql://quantedge_user:quantedge_pass@postgres:5432/quantedge
+    ports:
+      - "8501:8501"
+    volumes:
+      - ./logs:/app/logs
+
+volumes:
+  postgres_data:
